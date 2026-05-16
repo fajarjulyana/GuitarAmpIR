@@ -177,6 +177,7 @@ Instantiate a second `AmpProcessor` with its own gain/tone parameters and route 
 ## Authors & Developers
 
 * **Fajar Julyana** — Lead Developer / DSP Engineer
+* **+6281804411937** -This Phone Number
 * **QWare, inc.** — Bandung, Indonesia
 
 ---
