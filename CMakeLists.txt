@@ -93,9 +93,12 @@ target_link_libraries(GuitarAmpSim PRIVATE
 if(UNIX AND NOT APPLE)
     target_link_libraries(GuitarAmpSim PRIVATE pthread dl)
 endif()
-
+# ── Perbaikan Pengaturan Kompilasi untuk Kompatibilitas CPU Lama ─────────────
 if(MSVC)
-    target_compile_options(GuitarAmpSim PRIVATE /W4 /arch:AVX2)
+    # Mengubah dari /arch:AVX2 menjadi /arch:SSE2 agar aman di CPU lama
+    target_compile_options(GuitarAmpSim PRIVATE /W4 /arch:SSE2)
 else()
-    target_compile_options(GuitarAmpSim PRIVATE -Wall -Wextra -O3 -march=native)
+    # Menghapus -march=native agar tidak terikat secara spesifik pada CPU saat compiling, 
+    # atau menggantinya dengan target arsitektur dasar yang lebih aman (misal: -msse2)
+    target_compile_options(GuitarAmpSim PRIVATE -Wall -Wextra -O3 -msse2)
 endif()

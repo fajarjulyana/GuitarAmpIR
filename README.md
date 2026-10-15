@@ -58,24 +58,6 @@ cmake --install build
 
 ```
 
-### Windows MSVC 2019
-```bash
-# 1. Clone
-git clone [https://github.com/fajarjulyana/GuitarAmpIR.git](https://github.com/fajarjulyana/GuitarAmpIR.git)
-cd GuitarAmpIR
-
-# 2. Create build folder and getin 
- mkdir build
- cd build
-
-
-# 3. Build
-cmake -G "Visual Studio 16 2019" -A x64 ..
-
-# 4. Open with VS2019
-start GuitarAmpSim.sln
-
-```
 Plugins land in:
 
 | Format | Linux | macOS | Windows |
