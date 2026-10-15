@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.20)
 project(GuitarAmpSim VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -44,6 +44,11 @@ juce_add_plugin(GuitarAmpSim
     # VST3 specific ──────────────────────────────────────────────────────────
     VST3_CATEGORIES         "Fx" "Distortion" "Guitar"
 )
+
+if (MSVC)
+    target_compile_options(GuitarAmpSim PRIVATE /arch:SSE2)
+    target_compile_options(GuitarAmpSim_Standalone PRIVATE /arch:SSE2)
+endif()
 
 # ── Source files ──────────────────────────────────────────────────────────────
 target_sources(GuitarAmpSim PRIVATE
