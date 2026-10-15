@@ -5,16 +5,11 @@
 
 ConvolutionEngine::ConvolutionEngine() = default;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
 void ConvolutionEngine::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate   = spec.sampleRate;
     maxBlockSize = static_cast<int> (spec.maximumBlockSize);
 
-    // Choose FFT order so that blockSize >= maxBlockSize and fftSize = 2*blockSize
     fftOrder  = kMinFFTOrder;
     blockSize = 1 << (fftOrder - 1);
     while (blockSize < maxBlockSize)
@@ -26,7 +21,7 @@ void ConvolutionEngine::prepare (const juce::dsp::ProcessSpec& spec)
 
     fft = std::make_unique<juce::dsp::FFT> (fftOrder);
 
-    inputFifo.assign  (static_cast<size_t> (fftSize), 0.0f);
+    inputFifo.assign   (static_cast<size_t> (fftSize), 0.0f);
     overlapTail.assign (static_cast<size_t> (fftSize), 0.0f);
     workBuffer.assign  (static_cast<size_t> (fftSize * 2), 0.0f);
 
@@ -55,13 +50,11 @@ void ConvolutionEngine::clearIR()
 
 void ConvolutionEngine::loadIR (const juce::AudioBuffer<float>& irBuffer, double irSampleRate)
 {
-    // Build partitions on the calling thread; swap on the audio thread
-    PendingIR pending;
-    rebuildFromIR (irBuffer, irSampleRate);   // writes to irPartitions directly
-    // Signal that a new pending swap is ready by copying freshly-built partitions
+    auto newPartitions = rebuildFromIRLocal (irBuffer, irSampleRate);
+
     {
         juce::SpinLock::ScopedLockType lock (irSwapLock);
-        pendingIR.partitions = irPartitions;
+        pendingIR.partitions = std::move (newPartitions);
         pendingIR.ready      = true;
     }
 }
@@ -69,9 +62,8 @@ void ConvolutionEngine::loadIR (const juce::AudioBuffer<float>& irBuffer, double
 void ConvolutionEngine::process (float* data, int numSamples)
 {
     if (!irLoaded.load())
-        return;   // passthrough — no IR
+        return;
 
-    // Swap in a freshly-loaded IR if one is waiting
     swapPendingIR();
 
     int remaining = numSamples;
@@ -94,16 +86,9 @@ void ConvolutionEngine::process (float* data, int numSamples)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Private helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-void ConvolutionEngine::rebuildFromIR (const juce::AudioBuffer<float>& irBuf, double irSR)
+std::vector<ConvolutionEngine::IRPartition> ConvolutionEngine::rebuildFromIRLocal (const juce::AudioBuffer<float>& irBuf, double irSR)
 {
-    // Mix to mono
     int irLen = irBuf.getNumSamples();
-
-    // Clamp to kMaxIRSeconds
     int maxSamples = static_cast<int> (irSR * kMaxIRSeconds);
     irLen = std::min (irLen, maxSamples);
 
@@ -118,8 +103,6 @@ void ConvolutionEngine::rebuildFromIR (const juce::AudioBuffer<float>& irBuf, do
     for (auto& s : mono)
         s *= scale;
 
-    // Resample if necessary (simple linear interpolation for brevity;
-    // replace with juce::ResamplingAudioSource for production quality)
     if (std::abs (irSR - sampleRate) > 1.0)
     {
         double ratio = sampleRate / irSR;
@@ -138,11 +121,8 @@ void ConvolutionEngine::rebuildFromIR (const juce::AudioBuffer<float>& irBuf, do
         irLen = newLen;
     }
 
-    // Partition IR into blockSize-length segments
     int numPartitions = (irLen + blockSize - 1) / blockSize;
-    irPartitions.clear();
-    irPartitions.resize (static_cast<size_t> (numPartitions));
-
+    std::vector<IRPartition> localPartitions (static_cast<size_t> (numPartitions));
     std::vector<float> partBuf (static_cast<size_t> (fftSize), 0.0f);
 
     for (int p = 0; p < numPartitions; ++p)
@@ -153,17 +133,11 @@ void ConvolutionEngine::rebuildFromIR (const juce::AudioBuffer<float>& irBuf, do
         std::memcpy (partBuf.data(), mono.data() + start,
                      static_cast<size_t> (copyLen) * sizeof (float));
 
-        irPartitions[static_cast<size_t> (p)].spectrum.resize (static_cast<size_t> (fftSize));
-        forwardFFT (partBuf.data(), irPartitions[static_cast<size_t> (p)].spectrum.data());
+        localPartitions[static_cast<size_t> (p)].spectrum.resize (static_cast<size_t> (fftSize));
+        forwardFFT (partBuf.data(), localPartitions[static_cast<size_t> (p)].spectrum.data());
     }
 
-    // Resize frequency-domain delay line
-    fdlSpectra.assign (static_cast<size_t> (numPartitions),
-                       std::vector<std::complex<float>> (static_cast<size_t> (fftSize),
-                                                         { 0.0f, 0.0f }));
-    fdlHead = 0;
-
-    irLoaded.store (true);
+    return localPartitions;
 }
 
 void ConvolutionEngine::swapPendingIR()
@@ -191,17 +165,14 @@ void ConvolutionEngine::processOneBlock (const float* input, float* output)
         return;
     }
 
-    // 1. FFT of current input block (zero-padded to fftSize)
     std::fill (workBuffer.begin(), workBuffer.end(), 0.0f);
     std::memcpy (workBuffer.data(), input, static_cast<size_t> (blockSize) * sizeof (float));
 
     std::vector<std::complex<float>> inputSpec (static_cast<size_t> (fftSize));
     forwardFFT (workBuffer.data(), inputSpec.data());
 
-    // Store in FDL
     fdlSpectra[static_cast<size_t> (fdlHead)] = inputSpec;
 
-    // 2. Accumulate output spectrum:  Y = sum_k  H_k * X_{n-k}
     std::vector<std::complex<float>> outputSpec (static_cast<size_t> (fftSize), { 0.0f, 0.0f });
     for (int k = 0; k < numPartitions; ++k)
     {
@@ -215,31 +186,28 @@ void ConvolutionEngine::processOneBlock (const float* input, float* output)
 
     fdlHead = (fdlHead + 1) % numPartitions;
 
-    // 3. IFFT
     std::fill (workBuffer.begin(), workBuffer.end(), 0.0f);
     inverseFFT (outputSpec.data(), workBuffer.data());
 
-    // 4. Overlap-add: first half → output, accumulate second half into tail
     for (int i = 0; i < blockSize; ++i)
         output[i] = workBuffer[static_cast<size_t> (i)]
                   + overlapTail[static_cast<size_t> (i)];
 
-    // Shift new tail
     std::memcpy (overlapTail.data(),
                  workBuffer.data() + blockSize,
                  static_cast<size_t> (blockSize) * sizeof (float));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  FFT wrappers (using JUCE's FFT: interleaved real/imag pairs)
-// ─────────────────────────────────────────────────────────────────────────────
-
 void ConvolutionEngine::forwardFFT (const float* real, std::complex<float>* out)
 {
-    // JUCE FFT works on interleaved [re, im] floats, size = 2 * fftSize
+    if (!fft || fftSize <= 0)
+        return;
+
+    // Alokasi buffer FFT 2x fftSize
     std::vector<float> buf (static_cast<size_t> (fftSize * 2), 0.0f);
+    
     for (int i = 0; i < fftSize; ++i)
-        buf[static_cast<size_t> (i * 2)] = real[i];   // imaginary already 0
+        buf[static_cast<size_t> (i)] = real[i];
 
     fft->performRealOnlyForwardTransform (buf.data(), true);
 
@@ -250,6 +218,9 @@ void ConvolutionEngine::forwardFFT (const float* real, std::complex<float>* out)
 
 void ConvolutionEngine::inverseFFT (const std::complex<float>* in, float* out)
 {
+    if (!fft || fftSize <= 0)
+        return;
+
     std::vector<float> buf (static_cast<size_t> (fftSize * 2), 0.0f);
     for (int i = 0; i < fftSize; ++i)
     {
@@ -259,8 +230,7 @@ void ConvolutionEngine::inverseFFT (const std::complex<float>* in, float* out)
 
     fft->performRealOnlyInverseTransform (buf.data());
 
-    // JUCE's inverse does not normalize — divide by fftSize
     float norm = 1.0f / static_cast<float> (fftSize);
     for (int i = 0; i < fftSize; ++i)
-        out[i] = buf[static_cast<size_t> (i * 2)] * norm;
+        out[i] = buf[static_cast<size_t> (i)] * norm;
 }

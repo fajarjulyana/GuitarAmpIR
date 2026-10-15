@@ -217,8 +217,19 @@ GuitarAmpSimEditor::GuitarAmpSimEditor (GuitarAmpSimProcessor& p)
 
 GuitarAmpSimEditor::~GuitarAmpSimEditor()
 {
-    setLookAndFeel (nullptr);
     stopTimer();
+
+    // Lepas LookAndFeel dari semua kontrol sebelum darkLaf dihancurkan
+    inputGainKnob.setLookAndFeel (nullptr);
+    masterVolKnob.setLookAndFeel (nullptr);
+    bassKnob.setLookAndFeel (nullptr);
+    midKnob.setLookAndFeel (nullptr);
+    trebleKnob.setLookAndFeel (nullptr);
+    presenceKnob.setLookAndFeel (nullptr);
+    cabToggle.setLookAndFeel (nullptr);
+    loadIRBtn.setLookAndFeel (nullptr);
+
+    setLookAndFeel (nullptr);
 }
 
 void GuitarAmpSimEditor::timerCallback()
@@ -296,9 +307,10 @@ void GuitarAmpSimEditor::paint (juce::Graphics& g)
 
     g.setColour (Palette::labelText);
     g.setFont   (juce::Font (10.0f));
-    g.drawText  ("convolution cabinet · triode preamp",
-                 titleArea.withRight (getWidth() - 8),
-                 juce::Justification::centredRight);
+
+    g.drawText (juce::CharPointer_UTF8 ("convolution cabinet \xc2\xb7 triode preamp"),
+            titleArea.withRight (getWidth() - 8),
+            juce::Justification::centredRight);
 
     // Separator
     g.setColour (Palette::panel);

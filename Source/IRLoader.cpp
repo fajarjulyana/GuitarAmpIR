@@ -47,27 +47,22 @@ void IRLoader::loadFromFile (const juce::File& file)
 
 void IRLoader::browseAndLoad (juce::Component* parentComponent)
 {
-    // 1. Tentukan flag untuk membuka file chooser
+    juce::ignoreUnused (parentComponent); // Menghilangkan warning C4100
+
     auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
 
-    // 2. Buat objek FileChooser secara dinamis (menggunakan static std::unique_ptr)
-    // agar objek tidak langsung hancur/delete saat fungsi selesai dieksekusi.
-    static std::unique_ptr<juce::FileChooser> chooser;
-    
-    chooser = std::make_unique<juce::FileChooser> (
+    auto chooser = std::make_shared<juce::FileChooser> (
         "Load Impulse Response",
         juce::File::getSpecialLocation (juce::File::userHomeDirectory),
         "*.wav;*.aif;*.aiff;*.flac"
     );
 
-    // 3. Jalankan file chooser secara asynchronous
-    chooser->launchAsync (chooserFlags, [this](const juce::FileChooser& fc)
+    chooser->launchAsync (chooserFlags, [this, chooser](const juce::FileChooser& fc)
     {
         auto file = fc.getResult();
-        
+
         if (file.existsAsFile())
         {
-            // 4. Panggil fungsi asli kamu di sini
             loadFromFile (file);
         }
     });

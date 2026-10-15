@@ -144,7 +144,9 @@ void AmpProcessor::setPresence (float norm) noexcept
 
 void AmpProcessor::updateToneFilters (float bass, float mid, float treble, float presence)
 {
-    // Bass shelf: centre at 200 Hz, ±15 dB range
+    if (sampleRate <= 0.0)
+        return; // Mencegah crash pembagian dengan nol
+
     float bassDb   = (bass   - 0.5f) * 30.0f;
     float midDb    = (mid    - 0.5f) * 20.0f;
     float trebleDb = (treble - 0.5f) * 20.0f;

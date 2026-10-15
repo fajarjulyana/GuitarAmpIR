@@ -108,8 +108,12 @@ void GuitarAmpSimProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     ampProcessor.setPresence   (*apvts.getRawParameterValue (ParamID::Presence));
 
     // Re-load saved IR (e.g. after plugin reload)
-    if (savedIRPath.isNotEmpty())
-        irLoader.loadFromFile (juce::File (savedIRPath));
+if (savedIRPath.isNotEmpty())
+{
+    juce::File irFile (savedIRPath);
+    if (irFile.existsAsFile())
+        irLoader.loadFromFile (irFile);
+}
 
     inputLevel .store (0.0f);
     outputLevel.store (0.0f);
@@ -147,6 +151,10 @@ void GuitarAmpSimProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int numSamples  = buffer.getNumSamples();
     const int numOutChans = buffer.getNumChannels();
 
+    // Guard Check: Jangan proses jika buffer kosong atau channel 0
+    if (numSamples <= 0 || numOutChans <= 0)
+        return;
+
     // Use channel 0 as the mono working buffer
     float* mono = buffer.getWritePointer (0);
 
@@ -167,7 +175,10 @@ void GuitarAmpSimProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // ── Copy mono to stereo output if needed ─────────────────────────────
     if (numOutChans > 1)
-        buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
+    {
+        for (int ch = 1; ch < numOutChans; ++ch)
+            buffer.copyFrom (ch, 0, buffer, 0, 0, numSamples);
+    }
 
     // ── Output metering ───────────────────────────────────────────────────
     float outPeak = 0.0f;
